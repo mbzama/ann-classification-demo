@@ -153,34 +153,46 @@ def load_model_and_preprocessors():
         return None, None, None, None
 
 def preprocess_input(data, label_encoder_gender, one_hot_encoder_geography, scaler):
-    """Preprocess input data for prediction"""
-    # Create a copy of the input data
-    processed_data = data.copy()
-    
-    # Encode Gender
-    processed_data['Gender'] = label_encoder_gender.transform([processed_data['Gender']])[0]
-    
-    # One-hot encode Geography
-    geography_encoded = one_hot_encoder_geography.transform([[processed_data['Geography']]])
-    geography_encoded_df = pd.DataFrame(
-        geography_encoded.toarray(), 
-        columns=one_hot_encoder_geography.get_feature_names_out(['Geography'])
-    )
-    
-    # Remove Geography from the dictionary
-    geography_value = processed_data.pop('Geography')
-    
-    # Convert to DataFrame for easier manipulation
-    df = pd.DataFrame([processed_data])
-    
-    # Add geography encoded columns
-    for col in geography_encoded_df.columns:
-        df[col] = geography_encoded_df[col].iloc[0]
-    
-    # Scale the features
-    scaled_data = scaler.transform(df)
-    
-    return scaled_data
+    """Preprocess input data for prediction with enhanced data type handling"""
+    try:
+        # Create a copy of the input data
+        processed_data = data.copy()
+        
+        # Encode Gender
+        processed_data['Gender'] = label_encoder_gender.transform([processed_data['Gender']])[0]
+        
+        # One-hot encode Geography
+        geography_encoded = one_hot_encoder_geography.transform([[processed_data['Geography']]])
+        geography_encoded_df = pd.DataFrame(
+            geography_encoded.toarray(), 
+            columns=one_hot_encoder_geography.get_feature_names_out(['Geography'])
+        )
+        
+        # Remove Geography from the dictionary
+        geography_value = processed_data.pop('Geography')
+        
+        # Convert to DataFrame for easier manipulation
+        df = pd.DataFrame([processed_data])
+        
+        # Add geography encoded columns - ensure they are numeric
+        for col in geography_encoded_df.columns:
+            df[col] = float(geography_encoded_df[col].iloc[0])
+        
+        # Ensure all columns are numeric before scaling
+        for col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        # Check for any NaN values that might have been introduced
+        if df.isnull().any().any():
+            raise ValueError("NaN values found after preprocessing - check input data types")
+        
+        # Scale the features
+        scaled_data = scaler.transform(df)
+        
+        return scaled_data
+        
+    except Exception as e:
+        raise ValueError(f"Error in preprocessing: {str(e)}")
 
 def main():
     # Title and description
@@ -329,8 +341,7 @@ def main():
               # Make prediction
             prediction_prob = float(model.predict(processed_input)[0][0])
             prediction = 1 if prediction_prob > 0.5 else 0
-            
-            # Display results
+              # Display results
             col1, col2 = st.columns(2)
             
             with col1:
@@ -338,12 +349,22 @@ def main():
                 profile_df = pd.DataFrame({
                     'Feature': ['Credit Score', 'Geography', 'Gender', 'Age', 'Tenure', 
                                'Balance', 'Products', 'Credit Card', 'Active Member', 'Salary'],
-                    'Value': [credit_score, geography, gender, age, f"{tenure} years",
-                             f"${balance:,.2f}", num_of_products, 
-                             "Yes" if has_cr_card else "No",
-                             "Yes" if is_active_member else "No",
-                             f"${estimated_salary:,.2f}"]
+                    'Value': [
+                        str(credit_score), 
+                        str(geography), 
+                        str(gender), 
+                        str(age), 
+                        f"{tenure} years",
+                        f"${balance:,.2f}", 
+                        str(num_of_products), 
+                        "Yes" if has_cr_card else "No",
+                        "Yes" if is_active_member else "No",
+                        f"${estimated_salary:,.2f}"
+                    ]
                 })
+                
+                # Ensure all columns are string type to avoid Arrow conversion issues
+                profile_df = profile_df.astype(str)
                 st.dataframe(profile_df, use_container_width=True)
             
             with col2:
@@ -416,23 +437,33 @@ def main():
         - Standard Scaling for numerical features
         - Feature normalization applied
         """)
-    
-    # Model performance section
+      # Model performance section
     st.subheader("Sample Predictions")
     if st.button("Show Sample Predictions"):
         try:
             # Load and display sample predictions
             sample_predictions = pd.read_csv('predictions.csv')
             
+            # Ensure proper data types to avoid Arrow conversion issues
+            for col in sample_predictions.columns:
+                if sample_predictions[col].dtype == 'object':
+                    sample_predictions[col] = sample_predictions[col].astype(str)
+                else:
+                    # Convert numeric columns to float to ensure consistency
+                    sample_predictions[col] = pd.to_numeric(sample_predictions[col], errors='coerce')
+            
             # Show first 10 predictions
             st.dataframe(sample_predictions.head(10), use_container_width=True)
             
-            # Calculate accuracy
-            accuracy = (sample_predictions['Actual'] == sample_predictions['Predicted']).mean()
-            st.metric("Model Accuracy on Test Set", f"{accuracy:.2%}")
+            # Calculate accuracy if Actual and Predicted columns exist
+            if 'Actual' in sample_predictions.columns and 'Predicted' in sample_predictions.columns:
+                accuracy = (sample_predictions['Actual'] == sample_predictions['Predicted']).mean()
+                st.metric("Model Accuracy on Test Set", f"{accuracy:.2%}")
             
+        except FileNotFoundError:
+            st.warning("Sample predictions file (predictions.csv) not found.")
         except Exception as e:
-            st.warning("Sample predictions file not found or could not be loaded.")
+            st.warning(f"Could not load sample predictions: {str(e)}")
 
 if __name__ == "__main__":
     main()
