@@ -54,10 +54,10 @@ def load_model_and_preprocessors():
             3. Commit and push to your repository
             4. Redeploy to Streamlit Cloud
             """)
-            return None, None, None, None
-          # Load the model with error handling for version compatibility
+            return None, None, None, None        # Load the model with error handling for version compatibility
         model = None
-        model_paths = ['ann_model.keras', 'ann_model.h5']  # Try newer format first
+        # Try models in order of preference: rebuilt > newer format > original
+        model_paths = ['ann_model_rebuilt.keras', 'ann_model_rebuilt.h5', 'ann_model.keras', 'ann_model.h5']
         
         for model_path in model_paths:
             if os.path.exists(model_path):
@@ -73,26 +73,26 @@ def load_model_and_preprocessors():
                     st.success(f"✅ Model loaded successfully from {model_path}")
                     break
                 except Exception as model_error:
-                    st.warning(f"⚠️ Failed to load {model_path}: {model_error}")
+                    st.warning(f"⚠️ Failed to load {model_path}: {str(model_error)[:100]}...")
                     continue
         
         if model is None:
             st.error("❌ Failed to load model from any available format")
             st.info(f"""
-            **Common Solutions for Model Loading Issues**:
+            **Model Loading Solutions**:
             
-            1. **Version Mismatch**: The model was saved with a different TensorFlow version
-               - Current TensorFlow version: {tf.__version__}
-               - For Python 3.11, use TensorFlow >= 2.15.0
+            1. **Use Rebuilt Model** (Recommended):
+               - Run: `python rebuild_model.py`
+               - This creates a compatible model without InputLayer issues
             
-            2. **Legacy Format Issues**: Try converting HDF5 to native Keras format
-               - Run the conversion script: `python convert_model.py`
-               - Or re-train and save with: `model.save('model.keras')`
+            2. **Version Information**:
+               - Current TensorFlow: {tf.__version__}
+               - Compatible versions: 2.15.0+ for Python 3.11
             
-            3. **Compilation Issues**: Model metadata incompatibility
-               - Loading with `compile=False` and recompiling can help
+            3. **Available Files**: {[f for f in os.listdir('.') if f.endswith(('.h5', '.keras'))]}
             
-            **Available model files**: {[f for f in model_paths if os.path.exists(f)]}
+            **Common Error**: InputLayer deserialization indicates version compatibility issues.
+            The rebuild script fixes this by creating a new model with transferred weights.
             """)
             return None, None, None, None
         
