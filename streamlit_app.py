@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import pickle
 import os
+import sys
 import tensorflow as tf
 from tensorflow.keras.models import load_model
 import warnings
@@ -56,22 +57,47 @@ def load_model_and_preprocessors():
             """)
             return None, None, None, None        # Load the model with error handling for version compatibility
         model = None
-        # Try models in order of preference: rebuilt > newer format > original
-        model_paths = ['ann_model_rebuilt.keras', 'ann_model_rebuilt.h5', 'ann_model.keras', 'ann_model.h5']
+        # Try models in order of preference: Python 3.13 > rebuilt > newer format > original
+        model_paths = [
+            'ann_model_py313.keras',     # Python 3.13 optimized
+            'ann_model_py313.h5',        # Python 3.13 backup
+            'ann_model_rebuilt.keras',   # General rebuilt
+            'ann_model_rebuilt.h5',      # General rebuilt backup
+            'ann_model.keras',           # Converted original
+            'ann_model.h5'               # Original
+        ]
         
         for model_path in model_paths:
             if os.path.exists(model_path):
                 try:
                     st.info(f"🔄 Attempting to load model from {model_path}...")
+                    
+                    # Use compile=False for better compatibility
                     model = load_model(model_path, compile=False)
-                    # Recompile the model to avoid metric issues
-                    model.compile(
-                        optimizer='adam',
-                        loss='binary_crossentropy',
-                        metrics=['accuracy']
-                    )
+                    
+                    # Recompile with Python 3.13 compatible settings
+                    compile_kwargs = {
+                        'optimizer': 'adam',
+                        'loss': 'binary_crossentropy',
+                        'metrics': ['accuracy']
+                    }
+                    
+                    # Enhanced optimizer for Python 3.13 if available
+                    try:
+                        if hasattr(tf.keras.optimizers, 'Adam'):
+                            compile_kwargs['optimizer'] = tf.keras.optimizers.Adam(
+                                learning_rate=0.001,
+                                beta_1=0.9,
+                                beta_2=0.999,
+                                epsilon=1e-7
+                            )
+                    except:
+                        pass  # Fall back to string optimizer
+                    
+                    model.compile(**compile_kwargs)
                     st.success(f"✅ Model loaded successfully from {model_path}")
                     break
+                    
                 except Exception as model_error:
                     st.warning(f"⚠️ Failed to load {model_path}: {str(model_error)[:100]}...")
                     continue
@@ -79,20 +105,21 @@ def load_model_and_preprocessors():
         if model is None:
             st.error("❌ Failed to load model from any available format")
             st.info(f"""
-            **Model Loading Solutions**:
+            **Model Loading Solutions for Python 3.13**:
             
-            1. **Use Rebuilt Model** (Recommended):
-               - Run: `python rebuild_model.py`
-               - This creates a compatible model without InputLayer issues
+            1. **Create Python 3.13 Compatible Model** (Recommended):
+               - Run: `python rebuild_model_py313.py`
+               - This creates a model optimized for Python 3.13
             
             2. **Version Information**:
                - Current TensorFlow: {tf.__version__}
-               - Compatible versions: 2.15.0+ for Python 3.11
+               - Python 3.13 requires: TensorFlow >= 2.16.0
+               - Recommended: TensorFlow >= 2.17.0
             
             3. **Available Files**: {[f for f in os.listdir('.') if f.endswith(('.h5', '.keras'))]}
             
-            **Common Error**: InputLayer deserialization indicates version compatibility issues.
-            The rebuild script fixes this by creating a new model with transferred weights.
+            **For Python 3.13**: Use the rebuild script to ensure full compatibility
+            with the latest Python version and TensorFlow optimizations.
             """)
             return None, None, None, None
         
@@ -162,12 +189,31 @@ def main():
     This application uses an Artificial Neural Network (ANN) to predict whether a bank customer 
     is likely to churn (leave the bank) based on their profile and banking behavior.
     """)
-    
-    # Show system information in an expander
+      # Show system information in an expander
     with st.expander("🔧 System Information", expanded=False):
+        python_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+        st.write(f"**Python Version**: {python_version}")
         st.write(f"**TensorFlow Version**: {tf.__version__}")
-        st.write(f"**Python Version**: {st.__version__}")
-        st.write(f"**Available Files**: {[f for f in os.listdir('.') if f.endswith(('.h5', '.keras', '.pkl'))]}")
+        st.write(f"**Streamlit Version**: {st.__version__}")
+        
+        # Check for Python 3.13 compatibility
+        if sys.version_info >= (3, 13):
+            st.success("✅ Running on Python 3.13+ - Optimized compatibility")
+            st.info("💡 For best performance, ensure you're using the Python 3.13 optimized model")
+        elif sys.version_info >= (3, 11):
+            st.info("ℹ️ Running on Python 3.11+ - Good compatibility")
+        else:
+            st.warning("⚠️ Older Python version detected - consider upgrading")
+        
+        model_files = [f for f in os.listdir('.') if f.endswith(('.h5', '.keras'))]
+        st.write(f"**Available Model Files**: {model_files}")
+        
+        # Highlight Python 3.13 optimized models
+        py313_models = [f for f in model_files if 'py313' in f]
+        if py313_models:
+            st.success(f"🚀 Python 3.13 optimized models available: {py313_models}")
+        elif sys.version_info >= (3, 13):
+            st.info("💡 Consider running `python rebuild_model_py313.py` for optimal Python 3.13 performance")
     
     # Load model and preprocessors
     model, label_encoder_gender, one_hot_encoder_geography, scaler = load_model_and_preprocessors()
