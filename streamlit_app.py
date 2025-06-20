@@ -5,6 +5,11 @@ import pickle
 import os
 import tensorflow as tf
 from tensorflow.keras.models import load_model
+import warnings
+
+# Suppress TensorFlow warnings
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+warnings.filterwarnings('ignore')
 
 # Set page configuration
 st.set_page_config(
@@ -50,9 +55,46 @@ def load_model_and_preprocessors():
             4. Redeploy to Streamlit Cloud
             """)
             return None, None, None, None
+          # Load the model with error handling for version compatibility
+        model = None
+        model_paths = ['ann_model.keras', 'ann_model.h5']  # Try newer format first
         
-        # Load the model
-        model = load_model('ann_model.h5')
+        for model_path in model_paths:
+            if os.path.exists(model_path):
+                try:
+                    st.info(f"🔄 Attempting to load model from {model_path}...")
+                    model = load_model(model_path, compile=False)
+                    # Recompile the model to avoid metric issues
+                    model.compile(
+                        optimizer='adam',
+                        loss='binary_crossentropy',
+                        metrics=['accuracy']
+                    )
+                    st.success(f"✅ Model loaded successfully from {model_path}")
+                    break
+                except Exception as model_error:
+                    st.warning(f"⚠️ Failed to load {model_path}: {model_error}")
+                    continue
+        
+        if model is None:
+            st.error("❌ Failed to load model from any available format")
+            st.info(f"""
+            **Common Solutions for Model Loading Issues**:
+            
+            1. **Version Mismatch**: The model was saved with a different TensorFlow version
+               - Current TensorFlow version: {tf.__version__}
+               - For Python 3.11, use TensorFlow >= 2.15.0
+            
+            2. **Legacy Format Issues**: Try converting HDF5 to native Keras format
+               - Run the conversion script: `python convert_model.py`
+               - Or re-train and save with: `model.save('model.keras')`
+            
+            3. **Compilation Issues**: Model metadata incompatibility
+               - Loading with `compile=False` and recompiling can help
+            
+            **Available model files**: {[f for f in model_paths if os.path.exists(f)]}
+            """)
+            return None, None, None, None
         
         # Load the preprocessors
         with open('label_encoder_gender.pkl', 'rb') as file:
@@ -65,8 +107,22 @@ def load_model_and_preprocessors():
             scaler = pickle.load(file)
         
         return model, label_encoder_gender, one_hot_encoder_geography, scaler
+    
     except Exception as e:
         st.error(f"❌ Error loading model or preprocessors: {e}")
+        st.error(f"**Error details**: {str(e)}")
+        st.info(f"""
+        **Debug Information**:
+        - TensorFlow version: {tf.__version__}
+        - Current working directory: {os.getcwd()}
+        - Available files: {os.listdir('.')}
+        
+        **Troubleshooting Steps**:
+        1. Ensure all model files are present in the deployment
+        2. Check TensorFlow version compatibility (currently using {tf.__version__})
+        3. Consider re-training and saving the model with the current TensorFlow version
+        4. Use native Keras format (.keras) instead of HDF5 (.h5) for better compatibility
+        """)
         return None, None, None, None
 
 def preprocess_input(data, label_encoder_gender, one_hot_encoder_geography, scaler):
@@ -106,6 +162,12 @@ def main():
     This application uses an Artificial Neural Network (ANN) to predict whether a bank customer 
     is likely to churn (leave the bank) based on their profile and banking behavior.
     """)
+    
+    # Show system information in an expander
+    with st.expander("🔧 System Information", expanded=False):
+        st.write(f"**TensorFlow Version**: {tf.__version__}")
+        st.write(f"**Python Version**: {st.__version__}")
+        st.write(f"**Available Files**: {[f for f in os.listdir('.') if f.endswith(('.h5', '.keras', '.pkl'))]}")
     
     # Load model and preprocessors
     model, label_encoder_gender, one_hot_encoder_geography, scaler = load_model_and_preprocessors()
